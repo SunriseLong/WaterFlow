@@ -1,2 +1,4 @@
-OBJECTS = ['X_train', 'X_test', 'y_train', 'y_test', 'model', 'prediction', 'trained_model',
-           'hyperparams', 'y_pred', 'accuracy']
+OBJECTS = ['X_train', 'X_test', 'y_train', 'y_test', 'model', 'trained_model',
+           'prediction', 'y_pred', 'accuracy']
+
+EXP_OBJECTS = ['X_train', 'X_test', 'y_train', 'y_test', 'model', 'prediction', 'y_pred']
