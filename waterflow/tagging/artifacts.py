@@ -1,18 +1,15 @@
 import pandas as pd
 
-from waterflow.config import OBJECTS, EXP_OBJECTS
+from waterflow.config import OBJECTS, EXP_OBJECTS, EXP_OBJECT_TYPES
 
 
 class Tags(object):
 
     def __init__(self):
         self.queue = {}
+        self.cust_queue = {}
 
-        # todo: store custom vars in cust_queue for type handling
-        #  and nested values
-        cust_queue = {}
-
-    def save(self, artifact, obj: str, dtype: type =None):
+    def save(self, artifact, obj: str, dtype: str = None):
         """
         Tags a variable as something to be saved
 
@@ -32,23 +29,29 @@ class Tags(object):
         elif not dtype:
             raise ValueError("dtype must be provided if custom obj")
         else:
-            self.queue['cust' + ':' + obj + ':' + dtype.__name__] = artifact
+            self.cust_queue[obj] = (artifact, dtype)
 
         return artifact
 
     def ret_queue(self) -> dict:
         return self.queue
 
-    # todo return EXP_OBJECTS and CUSTOM
-    # todo add varaible type. Maybe shape for pd dataframe
+    # todo take rows youd like to see as argument
+    # todo add shape for pd dataframe
     # todo col for varaible name. %who, local(), dir()
     def inspect(self):
         """
         Returns pd.Dataframe of tagged variables and their values.
         Missing variables will have `NaN` value
         """
-        artifact = [self.queue.get(artif) for artif in EXP_OBJECTS]
-        return pd.DataFrame({'artifact': artifact}, index=EXP_OBJECTS)
+        cust_keys = list(self.cust_queue.keys())
+
+        artifact = [self.queue.get(artif) for artif in EXP_OBJECTS] + \
+            [self.cust_queue.get(artif)[0] for artif in self.cust_queue]
+
+        types = EXP_OBJECT_TYPES + [self.cust_queue.get(artif)[1] for artif in self.cust_queue]
+
+        return pd.DataFrame({'artifact': artifact, 'type': types}, index=EXP_OBJECTS+cust_keys)
 
     def flush(self, proj, exp, tag):
         """
@@ -64,5 +67,16 @@ class Tags(object):
         """
         # call out s3 service
         # todo create metadata provider file to hook into s3 and blob
-        # todo get columns and types of pandas dfs
+
+        # todo create json of columns and types of pandas dfs
+        summary = self.inspect()
+        dfs = summary[(pd.notnull(summary['artifact'])) & (summary['type'] == 'dataframe')]['artifacts']
+        df_names = list(dfs.index)
+
+        col_types = {}
+
+        for i in df_names:
+            col_types[i] = list(dfs['artifact'].loc[i].dtypes.map(lambda x: x.name))
+
+
 
