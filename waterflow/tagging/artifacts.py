@@ -22,6 +22,10 @@ class Tags(object):
             WaterFlow will store the object under the cust dir
         dtype: type or None, Default None
             used for storing custom variables not in OBJECTS
+
+        Returns
+        -------
+        `artifact` to preserve declarative interface
         """
 
         if obj in OBJECTS:
@@ -55,7 +59,9 @@ class Tags(object):
 
     def flush(self, proj, exp, tag):
         """
-        Pushes all variables from `queue` to metadata store
+        Pushes all variables from `queue` to metadata store.
+        Generates metadata for artifacts of type pd.Dataframe in JSON
+        format
 
         Parameters
         ----------
@@ -63,20 +69,23 @@ class Tags(object):
         exp: experiment name
         tag: custom commit message
 
-        :return:
         """
         # call out s3 service
         # todo create metadata provider file to hook into s3 and blob
 
-        # todo create json of columns and types of pandas dfs
+        # create json of columns and types of pandas dfs
         summary = self.inspect()
         dfs = summary[(pd.notnull(summary['artifact'])) & (summary['type'] == 'dataframe')]['artifacts']
         df_names = list(dfs.index)
 
         col_types = {}
+        col_stats = {}
 
         for i in df_names:
-            col_types[i] = list(dfs['artifact'].loc[i].dtypes.map(lambda x: x.name))
+            df = dfs['artifact'].loc[i]
+            col_types[i] = dict(
+                zip(df.columns, df.dtypes.map(lambda x: x.name)))
+            col_stats[i] = df.describe().to_dict()
 
 
 
