@@ -115,7 +115,7 @@ class Tags(object):
         df_summary = {'types': col_types, 'stats': col_stats}
 
         s3 = boto3.resource('s3')
-        s3object = s3.Object(proj, exp + '/' + tag + '/df_summary.json')
+        s3object = s3.Object(proj, '{}/{}/df_summary.json'.format(exp, tag))
 
         s3object.put(
             Body=(bytes(json.dumps(df_summary, cls=NpEncoder).encode('UTF-8'))),
