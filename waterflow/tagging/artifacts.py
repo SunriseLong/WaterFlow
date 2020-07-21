@@ -1,7 +1,11 @@
+import json
+from datetime import datetime
+import boto3
+import numpy as np
 import pandas as pd
 
 from waterflow.config import OBJECTS, EXP_OBJECTS, EXP_OBJECT_TYPES
-
+from waterflow.utils import NpEncoder
 
 class Tags(object):
 
@@ -22,6 +26,13 @@ class Tags(object):
             WaterFlow will store the object under the cust dir
         dtype: type or None, Default None
             used for storing custom variables not in OBJECTS
+            Behavior as follows:
+
+            * If `dtype` = 'string': saved to metadata json file as String
+            * If `dtype` = 'df': saved as parquet to metadata store provider
+            * If `dtype` = 'int' or 'float': saved to metadata json file as int or float
+            * If `dtype`= 'viz' or 'other: saved as pickle
+    
 
         Returns
         -------
@@ -57,7 +68,7 @@ class Tags(object):
 
         return pd.DataFrame({'artifact': artifact, 'type': types}, index=EXP_OBJECTS+cust_keys)
 
-    def flush(self, proj, exp, tag):
+    def flush(self, proj, exp, tag=None):
         """
         Pushes all variables from `queue` to metadata store.
         Generates metadata for artifacts of type pd.Dataframe in JSON
@@ -73,9 +84,15 @@ class Tags(object):
         # call out s3 service
         # todo create metadata provider file to hook into s3 and blob
 
+        # use datetime as index if tag name not provided
+        if not tag:
+            tag = str(datetime.utcnow())
+
         # create json of columns and types of pandas dfs
         summary = self.inspect()
-        dfs = summary[(pd.notnull(summary['artifact'])) & (summary['type'] == 'dataframe')]['artifacts']
+        # filter for not null df elements
+        # dfs = summary[(pd.notnull(summary['artifact'])) & (summary['type'] == 'dataframe')]['artifact']
+        dfs = summary[(pd.notnull(summary['artifact'])) & (summary['type'] == 'dataframe')]
         df_names = list(dfs.index)
 
         col_types = {}
@@ -86,6 +103,16 @@ class Tags(object):
             col_types[i] = dict(
                 zip(df.columns, df.dtypes.map(lambda x: x.name)))
             col_stats[i] = df.describe().to_dict()
+
+        df_summary = {'types': col_types, 'stats': col_stats}
+
+        s3 = boto3.resource('s3')
+        s3object = s3.Object(proj, exp + '/' + tag + '/df_summary.json')
+
+        s3object.put(
+            Body=(bytes(json.dumps(df_summary, cls=NpEncoder).encode('UTF-8'))),
+            ContentType='application/json'
+        )
 
 
 
