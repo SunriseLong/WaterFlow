@@ -1,7 +1,6 @@
 import json
 from datetime import datetime
 import boto3
-import numpy as np
 import pandas as pd
 
 from waterflow.config import OBJECTS, EXP_OBJECTS, EXP_OBJECT_TYPES
@@ -88,10 +87,13 @@ class Tags(object):
         if not tag:
             tag = str(datetime.utcnow())
 
+        ################
+        # Push summary #
+        ################
+
         # create json of columns and types of pandas dfs
         summary = self.inspect()
         # filter for not null df elements
-        # dfs = summary[(pd.notnull(summary['artifact'])) & (summary['type'] == 'dataframe')]['artifact']
         dfs = summary[(pd.notnull(summary['artifact'])) & (summary['type'] == 'dataframe')]
         df_names = list(dfs.index)
 
@@ -104,6 +106,12 @@ class Tags(object):
                 zip(df.columns, df.dtypes.map(lambda x: x.name)))
             col_stats[i] = df.describe().to_dict()
 
+            #############
+            # Push dfs #
+            #############
+            # todo: save largers dfs as parquet
+            df.to_csv('s3://{}/{}/{}/{}.csv'.format(proj, exp, tag, i), index=False)
+
         df_summary = {'types': col_types, 'stats': col_stats}
 
         s3 = boto3.resource('s3')
@@ -113,6 +121,4 @@ class Tags(object):
             Body=(bytes(json.dumps(df_summary, cls=NpEncoder).encode('UTF-8'))),
             ContentType='application/json'
         )
-
-
 
