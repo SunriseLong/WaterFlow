@@ -1,3 +1,4 @@
+import logging
 import json
 from datetime import datetime
 import boto3
@@ -5,6 +6,8 @@ import pandas as pd
 
 from waterflow.config import OBJECTS, EXP_OBJECTS, EXP_OBJECT_TYPES
 from waterflow.utils import NpEncoder
+
+logger = logging.getLogger('tagging_artifact')
 
 
 class Tags(object):
@@ -93,11 +96,13 @@ class Tags(object):
 
         # use datetime as index if tag name not provided
         if not tag:
+            logger.info('using datetime as tag')
             tag = str(datetime.utcnow())
 
         #####################
         # generate metadata #
         #####################
+        logger.info('generating metadata json file')
         summary = self.inspect()
         # filter for not null df elements
         df_names = list(
@@ -109,6 +114,7 @@ class Tags(object):
         col_types_dict = {}
         col_stats_dict = {}
 
+        logger.info('collecting dataframe types and summary stats for json')
         for i in df_names:
             df = summary["artifact"].loc[i]
             col_types_dict[i] = dict(zip(df.columns, df.dtypes.map(lambda x: x.name)))
@@ -118,6 +124,7 @@ class Tags(object):
             # Push dfs #
             #############
             # todo: save larger dfs as parquet, maybe partition as well
+            logger.info('saving dataframes as csv to S3')
             df.to_csv("s3://{}/{}/{}/{}.csv".format(proj, exp, tag, i), index=False)
 
         nums_and_strings = list(
@@ -126,6 +133,7 @@ class Tags(object):
 
         nums_and_strings_dict = {}
 
+        logger.info('collecting nums and strings for json')
         for i in nums_and_strings:
             num_or_str = summary["artifact"].loc[i]
             nums_and_strings_dict[i] = num_or_str
@@ -139,6 +147,7 @@ class Tags(object):
         s3 = boto3.resource("s3")
         s3object = s3.Object(proj, "{}/{}/df_summary.json".format(exp, tag))
 
+        logger.info('pushing metadata json to S3')
         s3object.put(
             Body=(bytes(json.dumps(df_metadata, cls=NpEncoder).encode("UTF-8"))),
             ContentType="application/json",
