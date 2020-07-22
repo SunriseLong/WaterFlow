@@ -6,8 +6,8 @@ import pandas as pd
 from waterflow.config import OBJECTS, EXP_OBJECTS, EXP_OBJECT_TYPES
 from waterflow.utils import NpEncoder
 
-class Tags(object):
 
+class Tags(object):
     def __init__(self):
         self.queue = {}
         self.cust_queue = {}
@@ -29,7 +29,11 @@ class Tags(object):
 
             * If `dtype` = 'string': saved to metadata json file as String
             * If `dtype` = 'df': saved as parquet to metadata store provider
-            * If `dtype` = 'int' or 'float': saved to metadata json file as int or float
+            * If `dtype` = 'int' or 'float' or 'str': saved to metadata
+             json file as int or float or str respectively. Need to retrieve
+                entire json file to access any values
+            * If `dtype` = 'metric': saved as readily accessible pickle
+                value via metadata provider client
             * If `dtype`= 'viz' or 'other: saved as pickle
     
 
@@ -60,12 +64,17 @@ class Tags(object):
         """
         cust_keys = list(self.cust_queue.keys())
 
-        artifact = [self.queue.get(artif) for artif in EXP_OBJECTS] + \
-            [self.cust_queue.get(artif)[0] for artif in self.cust_queue]
+        artifact = [self.queue.get(artif) for artif in EXP_OBJECTS] + [
+            self.cust_queue.get(artif)[0] for artif in self.cust_queue
+        ]
 
-        types = EXP_OBJECT_TYPES + [self.cust_queue.get(artif)[1] for artif in self.cust_queue]
+        types = EXP_OBJECT_TYPES + [
+            self.cust_queue.get(artif)[1] for artif in self.cust_queue
+        ]
 
-        return pd.DataFrame({'artifact': artifact, 'type': types}, index=EXP_OBJECTS+cust_keys)
+        return pd.DataFrame(
+            {"artifact": artifact, "type": types}, index=EXP_OBJECTS + cust_keys
+        )
 
     def flush(self, proj, exp, tag=None):
         """
@@ -80,45 +89,57 @@ class Tags(object):
         tag: custom commit message
 
         """
-        # call out s3 service
         # todo create metadata provider file to hook into s3 and blob
 
         # use datetime as index if tag name not provided
         if not tag:
             tag = str(datetime.utcnow())
 
-        ################
-        # Push summary #
-        ################
-
-        # create json of columns and types of pandas dfs
+        #####################
+        # generate metadata #
+        #####################
         summary = self.inspect()
         # filter for not null df elements
-        dfs = summary[(pd.notnull(summary['artifact'])) & (summary['type'] == 'dataframe')]
-        df_names = list(dfs.index)
+        df_names = list(
+            summary[
+                (pd.notnull(summary["artifact"])) & (summary["type"] == "dataframe")
+            ].index
+        )
 
-        col_types = {}
-        col_stats = {}
+        col_types_dict = {}
+        col_stats_dict = {}
 
         for i in df_names:
-            df = dfs['artifact'].loc[i]
-            col_types[i] = dict(
-                zip(df.columns, df.dtypes.map(lambda x: x.name)))
-            col_stats[i] = df.describe().to_dict()
+            df = summary["artifact"].loc[i]
+            col_types_dict[i] = dict(zip(df.columns, df.dtypes.map(lambda x: x.name)))
+            col_stats_dict[i] = df.describe().to_dict()
 
             #############
             # Push dfs #
             #############
-            # todo: save largers dfs as parquet
-            df.to_csv('s3://{}/{}/{}/{}.csv'.format(proj, exp, tag, i), index=False)
+            # todo: save larger dfs as parquet, maybe partition as well
+            df.to_csv("s3://{}/{}/{}/{}.csv".format(proj, exp, tag, i), index=False)
 
-        df_summary = {'types': col_types, 'stats': col_stats}
-
-        s3 = boto3.resource('s3')
-        s3object = s3.Object(proj, '{}/{}/df_summary.json'.format(exp, tag))
-
-        s3object.put(
-            Body=(bytes(json.dumps(df_summary, cls=NpEncoder).encode('UTF-8'))),
-            ContentType='application/json'
+        nums_and_strings = list(
+            summary[summary["type"].isin(["int", "float", "str"])].index
         )
 
+        nums_and_strings_dict = {}
+
+        for i in nums_and_strings:
+            num_or_str = summary["artifact"].loc[i]
+            nums_and_strings_dict[i] = num_or_str
+
+        df_metadata = {
+            "types": col_types_dict,
+            "stats": col_stats_dict,
+            "nums_and_strings": nums_and_strings_dict,
+        }
+
+        s3 = boto3.resource("s3")
+        s3object = s3.Object(proj, "{}/{}/df_summary.json".format(exp, tag))
+
+        s3object.put(
+            Body=(bytes(json.dumps(df_metadata, cls=NpEncoder).encode("UTF-8"))),
+            ContentType="application/json",
+        )
